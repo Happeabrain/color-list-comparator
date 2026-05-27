@@ -286,15 +286,27 @@
 // ─────────────────────────────────────────────────────────
 
 function expandPrefix(name) {
-  return name
+  let result = name
     .replace(/\blt\.?/gi, 'Light')
     .replace(/\bdk\.?/gi, 'Dark')
     .replace(/\bmed\.?/gi, 'Medium');
+  
+  result = result.replace(/\bGrey\b/gi, 'Gray');
+  result = result.replace(/\bGREY\b/gi, 'GRAY');
+  
+  return result;
 }
 
 function niceCase(str) {
   if (!str) return '';
-  return str.split(' ').map(w => w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w).join(' ');
+  let result = str.split(' ').map(w => w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w).join(' ');
+  result = result.replace(/\bGrey\b/g, 'Gray');
+  return result;
+}
+
+function fixGray(name) {
+  if (!name) return name;
+  return name.replace(/\bGrey\b/gi, 'Gray');
 }
 
 function escHtml(str) {
@@ -305,11 +317,30 @@ function escHtml(str) {
 function keyOf(name) {
   let normalized = name.toLowerCase().trim().replace(/\s+/g, ' ');
   normalized = normalized.replace(/mediumium/g, 'medium');
+  normalized = normalized.replace(/grey/g, 'gray');
   return normalized;
 }
 
+// Process color detection
+function isProcessColor(name) {
+  return name && name.toLowerCase().startsWith('process ');
+}
+
+// Clean Pantone - remove "Pantone" word and handle duplicates
+function cleanPantone(name) {
+  if (!name) return name;
+  // Remove "Pantone" prefix
+  let cleaned = name.replace(/^Pantone\s+/i, '');
+  // Handle duplicate words like "Yellow Yellow" -> "Yellow"
+  const words = cleaned.split(' ');
+  if (words.length >= 2 && words[0].toLowerCase() === words[1].toLowerCase()) {
+    return words[0];
+  }
+  return cleaned;
+}
+
 // ─────────────────────────────────────────────────────────
-//  SUPPLIER PARSER (format: * Pms 199 red)
+//  SUPPLIER PARSER
 // ─────────────────────────────────────────────────────────
 function parseSupplierLine(raw) {
   let line = raw.replace(/^[\s*\-•]+/, '').trim();
@@ -323,7 +354,7 @@ function parseSupplierLine(raw) {
   const qualMatch = line.match(qualRe);
   if (qualMatch) {
     const qualToken = qualMatch[1];
-    const colorAfter = qualMatch[2];
+    let colorAfter = qualMatch[2];
     const beforeQual = line.slice(0, qualMatch.index).trim();
     let pmsValue = '';
     const numMatch = beforeQual.match(/\b(\d+[\w]*)\b/);
@@ -338,6 +369,17 @@ function parseSupplierLine(raw) {
     colorNameRaw = colorNameRaw.replace(/\s+/g, ' ').trim();
     let colorName = niceCase(colorNameRaw);
     colorName = colorName.replace(/Mediumium/gi, 'Medium');
+    colorName = fixGray(colorName);
+    
+    // Clean Pantone if present
+    colorName = cleanPantone(colorName);
+    
+    // Process color handling
+    if (isProcessColor(colorName)) {
+      // For Process colors, the PMS is just the base Process color name (e.g., "Process Blue")
+      const processBase = colorName.split(' ').slice(0, 2).join(' ');
+      return { name: processBase, pms: processBase };
+    }
     return { name: colorName, pms: pmsValue };
   }
 
@@ -347,29 +389,39 @@ function parseSupplierLine(raw) {
     let rawName = expandPrefix(numMatch2[2]);
     let cleanName = niceCase(rawName);
     cleanName = cleanName.replace(/Mediumium/gi, 'Medium');
+    cleanName = fixGray(cleanName);
+    cleanName = cleanPantone(cleanName);
+    
+    if (isProcessColor(cleanName)) {
+      const processBase = cleanName.split(' ').slice(0, 2).join(' ');
+      return { name: processBase, pms: processBase };
+    }
     return { name: cleanName, pms: numMatch2[1] };
   }
 
   let finalFallback = expandPrefix(stripped);
   finalFallback = niceCase(finalFallback).replace(/Mediumium/gi, 'Medium');
+  finalFallback = fixGray(finalFallback);
+  finalFallback = cleanPantone(finalFallback);
+  
+  if (isProcessColor(finalFallback)) {
+    const processBase = finalFallback.split(' ').slice(0, 2).join(' ');
+    return { name: processBase, pms: processBase };
+  }
   return { name: finalFallback, pms: '' };
 }
 
 // ─────────────────────────────────────────────────────────
 //  ADMIN PARSER
-//  Input: "Athletic Gold 123	123" or "Black	process black"
-//  Output: name="Athletic Gold", pms="123"
 // ─────────────────────────────────────────────────────────
 function parseAdminLine(raw) {
   let line = raw.trim();
   if (!line) return null;
 
-  // Split by tab
   let columns = line.split('\t');
   let firstColumn = columns[0].trim();
   if (!firstColumn) return null;
   
-  // Special cases
   if (firstColumn.toLowerCase() === 'pms color match') return { name: 'PMS Color Match', pms: '' };
   if (firstColumn.toLowerCase() === 'black') return { name: 'Black', pms: 'Process Black' };
   if (firstColumn.toLowerCase() === 'white') return { name: 'White', pms: 'White' };
@@ -377,14 +429,12 @@ function parseAdminLine(raw) {
   let nameValue = firstColumn;
   let pmsValue = '';
   
-  // Find number at the end of the first column
   const numberMatch = firstColumn.match(/(\d+[\w]*)\s*$/);
   if (numberMatch) {
     pmsValue = numberMatch[1];
     nameValue = firstColumn.replace(/\s*\d+[\w]*\s*$/, '').trim();
   }
   
-  // If no number found, use second column as PMS
   if (!pmsValue && columns.length >= 2) {
     let secondCol = columns[1].trim();
     if (secondCol && secondCol.toLowerCase() !== 'null' && secondCol !== '') {
@@ -392,20 +442,24 @@ function parseAdminLine(raw) {
     }
   }
   
-  // Clean up name
   let expanded = expandPrefix(nameValue);
   let nameClean = niceCase(expanded);
   nameClean = nameClean.replace(/Mediumium/gi, 'Medium');
+  nameClean = fixGray(nameClean);
   
-  // Clean up PMS - keep original case for PMS Color Match related, but capitalize text
   let pmsClean = pmsValue;
   if (pmsValue && !/^\d+[\w]*$/.test(pmsValue)) {
     pmsClean = pmsValue.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    pmsClean = fixGray(pmsClean);
   }
   
-  // Ensure name is not empty
+  if (isProcessColor(nameClean) && (!pmsClean || pmsClean === '')) {
+    pmsClean = nameClean;
+  }
+  
   if (!nameClean && firstColumn) {
     nameClean = niceCase(expandPrefix(firstColumn));
+    nameClean = fixGray(nameClean);
   }
   
   return { name: nameClean, pms: pmsClean };
@@ -443,7 +497,6 @@ function doCompare() {
   const { rows: rowsA, skipped: skipA } = parseBlock(textA, parseSupplierLine);
   const { rows: rowsB, skipped: skipB } = parseBlock(textB, parseAdminLine);
 
-  // Deduplicate Admin list
   const uniqueAdmin = [];
   const seenAdminKeys = new Set();
   for (const row of rowsB) {
