@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PMS Compare – Supplier vs Admin</title>
+<title>PMS Compare – Admin vs Supplier</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap');
 
@@ -225,18 +225,18 @@
 <div class="wrapper">
 
   <header>
-    <h1>Color List Comparator · Supplier vs Admin</h1>
+    <h1>Color List Comparator · Admin vs Supplier</h1>
     <p>Compare two PMS color lists. Rows are sorted alphabetically by color name.</p>
   </header>
 
   <div class="card">
     <div class="input-grid">
       <div class="input-block">
-        <label>SUPPLIER LIST</label>
+        <label>ADMIN LIST</label>
         <textarea id="listA"></textarea>
       </div>
       <div class="input-block">
-        <label>ADMIN LIST</label>
+        <label>SUPPLIER LIST</label>
         <textarea id="listB"></textarea>
       </div>
     </div>
@@ -254,16 +254,16 @@
     </div>
     <div class="legend">
       <div class="legend-item"><div class="legend-dot dot-mismatch"></div> PMS mismatch</div>
-      <div class="legend-item"><div class="legend-dot dot-only-a"></div> Only in Supplier list</div>
-      <div class="legend-item"><div class="legend-dot dot-only-b"></div> Only in Admin list</div>
+      <div class="legend-item"><div class="legend-dot dot-only-a"></div> Only in Admin list</div>
+      <div class="legend-item"><div class="legend-dot dot-only-b"></div> Only in Supplier list</div>
     </div>
     <div class="table-wrap">
       <table id="compareTable">
         <thead>
           <tr>
-            <th class="group-header" colspan="2">SUPPLIER</th>
-            <th class="divider-col" rowspan="2"></th>
             <th class="group-header" colspan="2">ADMIN</th>
+            <th class="divider-col" rowspan="2"></th>
+            <th class="group-header" colspan="2">SUPPLIER</th>
           </tr>
           <tr class="sub-header">
             <th>COLOR NAME</th>
@@ -325,6 +325,11 @@ function isProcessColor(name) {
   return name && name.toLowerCase().startsWith('process ');
 }
 
+function isSpecialColor(name) {
+  const specials = ['rhodamine red', 'rubine red', 'warm red'];
+  return specials.includes(name.toLowerCase());
+}
+
 function cleanPantone(name) {
   if (!name) return name;
   let cleaned = name.replace(/^Pantone\s+/i, '');
@@ -348,14 +353,13 @@ function transformAdminName(name) {
 
 function fixPMSFormat(pms) {
   if (!pms) return '';
-  // Fix "Pms" to "PMS" but only for exact "Pms" or "pms" patterns
   let fixed = pms.replace(/\bPms\b/gi, 'PMS');
   fixed = fixed.replace(/\bpms\b/gi, 'PMS');
   return fixed;
 }
 
 // ─────────────────────────────────────────────────────────
-//  SUPPLIER PARSER
+//  SUPPLIER PARSER (now on the right)
 // ─────────────────────────────────────────────────────────
 function parseSupplierLine(raw) {
   let line = raw.replace(/^[\s*\-•]+/, '').trim();
@@ -364,6 +368,11 @@ function parseSupplierLine(raw) {
   const lower = line.toLowerCase();
   if (lower === 'black') return { name: 'Black', pms: 'Process Black' };
   if (lower === 'white') return { name: 'White', pms: 'White' };
+
+  // Special colors: Rhodamine Red, Rubine Red, Warm Red
+  if (lower === 'rhodamine red') return { name: 'Rhodamine Red', pms: 'Rhodamine Red' };
+  if (lower === 'rubine red') return { name: 'Rubine Red', pms: 'Rubine Red' };
+  if (lower === 'warm red') return { name: 'Warm Red', pms: 'Warm Red' };
 
   const qualRe = /\b(lt\.?|dk\.?|med\.?)\s+(\w+(?:\s+\w+)*)/i;
   const qualMatch = line.match(qualRe);
@@ -407,6 +416,9 @@ function parseSupplierLine(raw) {
       const processBase = cleanName.split(' ').slice(0, 2).join(' ');
       return { name: processBase, pms: processBase };
     }
+    if (isSpecialColor(cleanName)) {
+      return { name: cleanName, pms: cleanName };
+    }
     return { name: cleanName, pms: fixPMSFormat(numMatch2[1]) };
   }
 
@@ -419,11 +431,14 @@ function parseSupplierLine(raw) {
     const processBase = finalFallback.split(' ').slice(0, 2).join(' ');
     return { name: processBase, pms: processBase };
   }
+  if (isSpecialColor(finalFallback)) {
+    return { name: finalFallback, pms: finalFallback };
+  }
   return { name: finalFallback, pms: '' };
 }
 
 // ─────────────────────────────────────────────────────────
-//  ADMIN PARSER
+//  ADMIN PARSER (now on the left)
 // ─────────────────────────────────────────────────────────
 function parseAdminLine(raw) {
   let line = raw.trim();
@@ -433,7 +448,6 @@ function parseAdminLine(raw) {
   let firstColumn = columns[0].trim();
   if (!firstColumn) return null;
   
-  // Handle PMS Color Match and PMS Match
   if (firstColumn.toLowerCase() === 'pms color match' || firstColumn.toLowerCase() === 'pms match') {
     return { name: 'PMS Color Match', pms: '' };
   }
@@ -502,20 +516,20 @@ function parseBlock(text, parserFn) {
 //  MAIN COMPARE
 // ─────────────────────────────────────────────────────────
 function doCompare() {
-  const textA = document.getElementById('listA').value;
-  const textB = document.getElementById('listB').value;
+  const textA = document.getElementById('listA').value; // ADMIN
+  const textB = document.getElementById('listB').value; // SUPPLIER
   if (!textA.trim() && !textB.trim()) { 
     showErr('compareError', 'Please paste at least one list.'); 
     return; 
   }
   hideErr('compareError');
 
-  const { rows: rowsA, skipped: skipA } = parseBlock(textA, parseSupplierLine);
-  const { rows: rowsB, skipped: skipB } = parseBlock(textB, parseAdminLine);
+  const { rows: rowsA, skipped: skipA } = parseBlock(textA, parseAdminLine);
+  const { rows: rowsB, skipped: skipB } = parseBlock(textB, parseSupplierLine);
 
   const uniqueAdmin = [];
   const seenAdminKeys = new Set();
-  for (const row of rowsB) {
+  for (const row of rowsA) {
     const key = keyOf(row.name);
     if (!seenAdminKeys.has(key)) {
       seenAdminKeys.add(key);
@@ -523,19 +537,18 @@ function doCompare() {
     }
   }
   
-  const mapA = {};
-  for (const row of rowsA) {
-    mapA[keyOf(row.name)] = row;
-  }
-  
-  const mapB = {};
+  const mapAdmin = {};
   for (const row of uniqueAdmin) {
-    mapB[keyOf(row.name)] = row;
+    mapAdmin[keyOf(row.name)] = row;
   }
   
-  const allKeys = new Set([...Object.keys(mapA), ...Object.keys(mapB)]);
+  const mapSupplier = {};
+  for (const row of rowsB) {
+    mapSupplier[keyOf(row.name)] = row;
+  }
   
-  // Sort: "PMS Color Match" goes LAST
+  const allKeys = new Set([...Object.keys(mapAdmin), ...Object.keys(mapSupplier)]);
+  
   const sortedKeys = Array.from(allKeys).sort((a, b) => {
     const aIsSpecial = a === 'pms color match';
     const bIsSpecial = b === 'pms color match';
@@ -548,45 +561,45 @@ function doCompare() {
   tbody.innerHTML = '';
 
   for (const key of sortedKeys) {
-    const a = mapA[key] || null;
-    const b = mapB[key] || null;
+    const admin = mapAdmin[key] || null;
+    const supplier = mapSupplier[key] || null;
     
-    const supplierName = a ? a.name : '';
-    const supplierPMS = a ? a.pms : '';
-    const adminName = b ? b.name : '';
-    const adminPMS = b ? b.pms : '';
+    const adminName = admin ? admin.name : '';
+    const adminPMS = admin ? admin.pms : '';
+    const supplierName = supplier ? supplier.name : '';
+    const supplierPMS = supplier ? supplier.pms : '';
 
-    const onlyA = a && !b;
-    const onlyB = !a && b;
-    const pmsMatch = a && b && a.pms.trim().toLowerCase() === b.pms.trim().toLowerCase();
-    const mismatch = a && b && !pmsMatch;
+    const onlyAdmin = admin && !supplier;
+    const onlySupplier = !admin && supplier;
+    const pmsMatch = admin && supplier && admin.pms.trim().toLowerCase() === supplier.pms.trim().toLowerCase();
+    const mismatch = admin && supplier && !pmsMatch;
 
     let rowClass = '';
     if (mismatch) rowClass = 'row-mismatch';
-    else if (onlyA) rowClass = 'row-only-a';
-    else if (onlyB) rowClass = 'row-only-b';
+    else if (onlyAdmin) rowClass = 'row-only-a';
+    else if (onlySupplier) rowClass = 'row-only-b';
 
-    const supplierPMSCell = mismatch ? `<span class="pms-mismatch">${escHtml(supplierPMS)}</span>` : escHtml(supplierPMS);
     const adminPMSCell = mismatch ? `<span class="pms-mismatch">${escHtml(adminPMS)}</span>` : escHtml(adminPMS);
+    const supplierPMSCell = mismatch ? `<span class="pms-mismatch">${escHtml(supplierPMS)}</span>` : escHtml(supplierPMS);
     
-    const supplierNameDisplay = supplierName ? escHtml(supplierName) : '<span class="empty-cell">—</span>';
     const adminNameDisplay = adminName ? escHtml(adminName) : '<span class="empty-cell">—</span>';
+    const supplierNameDisplay = supplierName ? escHtml(supplierName) : '<span class="empty-cell">—</span>';
 
     const tr = document.createElement('tr');
     if (rowClass) tr.className = rowClass;
     tr.innerHTML = `
-      <td>${supplierNameDisplay}</td>
-      <td>${supplierPMSCell || '<span class="empty-cell">—</span>'}</td>
-      <td class="divider-col"></td>
       <td>${adminNameDisplay}</td>
       <td>${adminPMSCell || '<span class="empty-cell">—</span>'}</td>
+      <td class="divider-col"></td>
+      <td>${supplierNameDisplay}</td>
+      <td>${supplierPMSCell || '<span class="empty-cell">—</span>'}</td>
     `;
     tbody.appendChild(tr);
   }
 
   let notes = [];
-  if (skipA.length) notes.push(`Supplier: ${skipA.length} line(s) skipped (lines: ${skipA.join(', ')})`);
-  if (skipB.length) notes.push(`Admin: ${skipB.length} line(s) skipped (lines: ${skipB.join(', ')})`);
+  if (skipA.length) notes.push(`Admin: ${skipA.length} line(s) skipped (lines: ${skipA.join(', ')})`);
+  if (skipB.length) notes.push(`Supplier: ${skipB.length} line(s) skipped (lines: ${skipB.join(', ')})`);
   
   document.getElementById('compareSkipped').textContent = notes.join(' · ');
   document.getElementById('compareOutput').classList.add('visible');
@@ -594,7 +607,7 @@ function doCompare() {
 
 function copyCompare() {
   const rows = document.querySelectorAll('#compareTable tbody tr');
-  const tsv = ['SUPPLIER NAME\tSUPPLIER PMS\tADMIN NAME\tADMIN PMS'];
+  const tsv = ['ADMIN NAME\tADMIN PMS\tSUPPLIER NAME\tSUPPLIER PMS'];
   for (const row of rows) {
     const cells = Array.from(row.querySelectorAll('td')).filter(cell => !cell.classList.contains('divider-col'));
     const textContents = cells.map(cell => cell.textContent.trim().replace(/—/g, ''));
