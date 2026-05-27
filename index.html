@@ -325,7 +325,6 @@ function isProcessColor(name) {
   return name && name.toLowerCase().startsWith('process ');
 }
 
-// Clean Pantone - remove "Pantone" word and handle duplicates like "Yellow Yellow" -> "Yellow"
 function cleanPantone(name) {
   if (!name) return name;
   let cleaned = name.replace(/^Pantone\s+/i, '');
@@ -336,18 +335,23 @@ function cleanPantone(name) {
   return cleaned;
 }
 
-// Admin list name transformations
 function transformAdminName(name) {
   if (!name) return name;
-  // Reflex Blue -> Dark Blue
   if (name.toLowerCase() === 'reflex blue') {
     return 'Dark Blue';
   }
-  // Process Blue -> Light Blue
   if (name.toLowerCase() === 'process blue') {
     return 'Light Blue';
   }
   return name;
+}
+
+function fixPMSFormat(pms) {
+  if (!pms) return '';
+  // Fix "Pms" to "PMS" but only for exact "Pms" or "pms" patterns
+  let fixed = pms.replace(/\bPms\b/gi, 'PMS');
+  fixed = fixed.replace(/\bpms\b/gi, 'PMS');
+  return fixed;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -387,7 +391,7 @@ function parseSupplierLine(raw) {
       const processBase = colorName.split(' ').slice(0, 2).join(' ');
       return { name: processBase, pms: processBase };
     }
-    return { name: colorName, pms: pmsValue };
+    return { name: colorName, pms: fixPMSFormat(pmsValue) };
   }
 
   let stripped = line.replace(/^(pms|pantone)\s*/i, '').trim();
@@ -403,7 +407,7 @@ function parseSupplierLine(raw) {
       const processBase = cleanName.split(' ').slice(0, 2).join(' ');
       return { name: processBase, pms: processBase };
     }
-    return { name: cleanName, pms: numMatch2[1] };
+    return { name: cleanName, pms: fixPMSFormat(numMatch2[1]) };
   }
 
   let finalFallback = expandPrefix(stripped);
@@ -429,7 +433,10 @@ function parseAdminLine(raw) {
   let firstColumn = columns[0].trim();
   if (!firstColumn) return null;
   
-  if (firstColumn.toLowerCase() === 'pms color match') return { name: 'PMS Color Match', pms: '' };
+  // Handle PMS Color Match and PMS Match
+  if (firstColumn.toLowerCase() === 'pms color match' || firstColumn.toLowerCase() === 'pms match') {
+    return { name: 'PMS Color Match', pms: '' };
+  }
   if (firstColumn.toLowerCase() === 'black') return { name: 'Black', pms: 'Process Black' };
   if (firstColumn.toLowerCase() === 'white') return { name: 'White', pms: 'White' };
   
@@ -453,8 +460,6 @@ function parseAdminLine(raw) {
   let nameClean = niceCase(expanded);
   nameClean = nameClean.replace(/Mediumium/gi, 'Medium');
   nameClean = fixGray(nameClean);
-  
-  // Apply Admin name transformations
   nameClean = transformAdminName(nameClean);
   
   let pmsClean = pmsValue;
@@ -473,7 +478,7 @@ function parseAdminLine(raw) {
     nameClean = transformAdminName(nameClean);
   }
   
-  return { name: nameClean, pms: pmsClean };
+  return { name: nameClean, pms: fixPMSFormat(pmsClean) };
 }
 
 function parseBlock(text, parserFn) {
@@ -530,11 +535,12 @@ function doCompare() {
   
   const allKeys = new Set([...Object.keys(mapA), ...Object.keys(mapB)]);
   
+  // Sort: "PMS Color Match" goes LAST
   const sortedKeys = Array.from(allKeys).sort((a, b) => {
-    const aLast = a === 'pms color match';
-    const bLast = b === 'pms color match';
-    if (aLast && !bLast) return 1;
-    if (!aLast && bLast) return -1;
+    const aIsSpecial = a === 'pms color match';
+    const bIsSpecial = b === 'pms color match';
+    if (aIsSpecial && !bIsSpecial) return 1;
+    if (!aIsSpecial && bIsSpecial) return -1;
     return a.localeCompare(b);
   });
 
