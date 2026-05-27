@@ -321,22 +321,33 @@ function keyOf(name) {
   return normalized;
 }
 
-// Process color detection
 function isProcessColor(name) {
   return name && name.toLowerCase().startsWith('process ');
 }
 
-// Clean Pantone - remove "Pantone" word and handle duplicates
+// Clean Pantone - remove "Pantone" word and handle duplicates like "Yellow Yellow" -> "Yellow"
 function cleanPantone(name) {
   if (!name) return name;
-  // Remove "Pantone" prefix
   let cleaned = name.replace(/^Pantone\s+/i, '');
-  // Handle duplicate words like "Yellow Yellow" -> "Yellow"
   const words = cleaned.split(' ');
   if (words.length >= 2 && words[0].toLowerCase() === words[1].toLowerCase()) {
     return words[0];
   }
   return cleaned;
+}
+
+// Admin list name transformations
+function transformAdminName(name) {
+  if (!name) return name;
+  // Reflex Blue -> Dark Blue
+  if (name.toLowerCase() === 'reflex blue') {
+    return 'Dark Blue';
+  }
+  // Process Blue -> Light Blue
+  if (name.toLowerCase() === 'process blue') {
+    return 'Light Blue';
+  }
+  return name;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -370,13 +381,9 @@ function parseSupplierLine(raw) {
     let colorName = niceCase(colorNameRaw);
     colorName = colorName.replace(/Mediumium/gi, 'Medium');
     colorName = fixGray(colorName);
-    
-    // Clean Pantone if present
     colorName = cleanPantone(colorName);
     
-    // Process color handling
     if (isProcessColor(colorName)) {
-      // For Process colors, the PMS is just the base Process color name (e.g., "Process Blue")
       const processBase = colorName.split(' ').slice(0, 2).join(' ');
       return { name: processBase, pms: processBase };
     }
@@ -447,6 +454,9 @@ function parseAdminLine(raw) {
   nameClean = nameClean.replace(/Mediumium/gi, 'Medium');
   nameClean = fixGray(nameClean);
   
+  // Apply Admin name transformations
+  nameClean = transformAdminName(nameClean);
+  
   let pmsClean = pmsValue;
   if (pmsValue && !/^\d+[\w]*$/.test(pmsValue)) {
     pmsClean = pmsValue.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
@@ -460,6 +470,7 @@ function parseAdminLine(raw) {
   if (!nameClean && firstColumn) {
     nameClean = niceCase(expandPrefix(firstColumn));
     nameClean = fixGray(nameClean);
+    nameClean = transformAdminName(nameClean);
   }
   
   return { name: nameClean, pms: pmsClean };
